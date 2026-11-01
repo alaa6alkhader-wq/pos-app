@@ -42,7 +42,8 @@ jobs:
 
           Set-Location $deskDir
           npm init -y
-          npm install express electron
+          npm install express
+          npm install --save-dev electron
 
           $code = @"
           const { app, BrowserWindow } = require('electron');
@@ -68,7 +69,7 @@ jobs:
             if (process.platform !== 'darwin') app.quit();
           });
           "@
-          Set-Content -Path "main.js" -Value $code
+          Set-Content -Path "index.js" -Value $code
 
           npx --yes @electron/packager . "POS-App" --platform=win32 --arch=x64 --out=build-out --overwrite
           Compress-Archive -Path "$deskDir/build-out/POS-App-win32-x64/*" -DestinationPath "$env:GITHUB_WORKSPACE/POS-App-Windows.zip" -Force
