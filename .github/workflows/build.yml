@@ -1,0 +1,80 @@
+name: Build Offline Windows App
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Extract and Build App
+        shell: pwsh
+        run: |
+          Expand-Archive -Path *.zip -DestinationPath ./extracted -Force
+          $pkg = Get-ChildItem -Path ./extracted -Filter package.json -Recurse | Select-Object -First 1
+          $projDir = $pkg.DirectoryName
+          Write-Host "Project folder: $projDir"
+          Set-Location $projDir
+          npm install
+          npm run build
+
+          if (Test-Path "$projDir/dist") {
+            $distPath = "$projDir/dist"
+          } elseif (Test-Path "$projDir/build") {
+            $distPath = "$projDir/build"
+          } else {
+            $distPath = "$projDir"
+          }
+
+          $deskDir = "$env:GITHUB_WORKSPACE/desktop"
+          New-Item -ItemType Directory -Path "$deskDir/web-dist" -Force
+          Copy-Item -Path "$distPath/*" -Destination "$deskDir/web-dist" -Recurse -Force
+
+          Set-Location $deskDir
+          npm init -y
+          npm install express electron
+
+          $code = @"
+          const { app, BrowserWindow } = require('electron');
+          const path = require('path');
+          const express = require('express');
+
+          const server = express();
+          server.use(express.static(path.join(__dirname, 'web-dist')));
+
+          const srv = server.listen(0, '127.0.0.1', () => {
+            const port = srv.address().port;
+            app.whenReady().then(() => {
+              const win = new BrowserWindow({
+                width: 1280,
+                height: 800,
+                title: 'نظام المبيعات'
+              });
+              win.loadURL('http://127.0.0.1:' + port);
+            });
+          });
+
+          app.on('window-all-closed', () => {
+            if (process.platform !== 'darwin') app.quit();
+          });
+          "@
+          Set-Content -Path "main.js" -Value $code
+
+          npx --yes @electron/packager . "POS-App" --platform=win32 --arch=x64 --out=build-out --overwrite
+          Compress-Archive -Path "$deskDir/build-out/POS-App-win32-x64/*" -DestinationPath "$env:GITHUB_WORKSPACE/POS-App-Windows.zip" -Force
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: POS-App-Windows
+          path: POS-App-Windows.zip
